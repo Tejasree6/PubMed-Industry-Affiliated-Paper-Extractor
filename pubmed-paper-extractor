@@ -1,1 +1,85 @@
 Python script to extract industry-affiliated PubMed papers using Entrez API.
+this is the exact code of pubmed papers:
+# 📦 Install Biopython
+!pip install biopython
+
+# 🔧 Imports
+import csv
+from Bio import Entrez
+from google.colab import files
+
+# 🧾 Set your email (NCBI requirement)
+Entrez.email = "dtejasree6789@gmail.com"
+
+# 🔍 Fetch PubMed IDs
+def fetch_pubmed_ids(query, max_results=50):
+    handle = Entrez.esearch(db="pubmed", term=query, retmax=max_results)
+    record = Entrez.read(handle)
+    return record["IdList"]
+
+# 📑 Fetch article details
+def fetch_pubmed_details(id_list):
+    ids = ",".join(id_list)
+    handle = Entrez.efetch(db="pubmed", id=ids, retmode="xml")
+    records = Entrez.read(handle)
+    return records
+
+# 🧠 Parse article
+def parse_article(article):
+    article_info = {}
+    article_info["PubmedID"] = article.get("MedlineCitation", {}).get("PMID", "?")
+    article_data = article.get("MedlineCitation", {}).get("Article", {})
+    article_info["Title"] = article_data.get("ArticleTitle", "N/A")
+    pub_date = article_data.get("Journal", {}).get("JournalIssue", {}).get("PubDate", {})
+    article_info["Publication Date"] = pub_date.get("Year", "N/A")
+
+    authors = article_data.get("AuthorList", [])
+    non_academic_authors = []
+    company_affiliations = []
+    author_emails = []
+
+    for author in authors:
+        aff = author.get("AffiliationInfo", [])
+        for a in aff:
+            affiliation = a.get("Affiliation", "")
+            if any(keyword in affiliation.lower() for keyword in ["pharm","inca", "biotech", "ltd", "corp"]):
+                non_academic_authors.append(f"{author.get('ForeName', '')} {author.get('LastName', '')}")
+                company_affiliations.append(affiliation)
+            if "@" in affiliation:
+                author_emails.append(affiliation.split()[-1])
+
+    article_info["Non-academic Author(s)"] = "; ".join(non_academic_authors)
+    article_info["Company Affiliation(s)"] = "; ".join(company_affiliations)
+    article_info["Corresponding Author Email"] = "; ".join(author_emails)
+
+    return article_info
+
+# 💾 Save to CSV
+def save_to_csv(data, filename):
+    keys = data[0].keys()
+    with open(filename, mode='w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
+        writer.writeheader()
+        writer.writerows(data)
+
+# 🧪 Configuration
+query = "cancer vaccine"
+max_results = 50
+output_file = "pubmed_results.csv"
+
+# 🚀 Run process
+ids = fetch_pubmed_ids(query, max_results=max_results)
+records = fetch_pubmed_details(ids)
+
+data = []
+for article in records["PubmedArticle"]:
+    parsed = parse_article(article)
+    if parsed["Company Affiliation(s)"]:
+        data.append(parsed)
+
+if data:
+    save_to_csv(data, output_file)
+    print(f"✅ Saved {len(data)} results to {output_file}")
+    files.download(output_file)  # 📥 Download file
+else:
+    print("⚠️ No relevant papers found.")
